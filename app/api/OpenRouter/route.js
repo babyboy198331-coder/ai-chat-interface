@@ -7,21 +7,27 @@ export async function POST(req) {
       headers: {
         "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "My Chat App"
+        "HTTP-Referer": "https://deep-seek-clone-wine.vercel.app",
+        "X-Title": "My Chat App",
       },
       body: JSON.stringify({
         model: "meta-llama/llama-3-8b-instruct",
-        messages
-      })
+        messages,
+      }),
     });
 
     const data = await res.json();
 
-    return Response.json({
-      reply: data?.choices?.[0]?.message?.content || "No response"
-    });
+    if (!res.ok) {
+      return Response.json(
+        { reply: "API error", error: data },
+        { status: res.status }
+      );
+    }
 
+    return Response.json({
+      reply: data?.choices?.[0]?.message?.content || "No response",
+    });
   } catch (err) {
     return Response.json(
       { reply: "Server error", error: err.message },
