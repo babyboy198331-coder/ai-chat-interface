@@ -8,7 +8,7 @@ const inter = Inter({
 
 
 export const metadata = {
-  title: "DeepSeek - GreatStack",
+  title: "Gemma- GreatStack",
   description: "Full Stack Project",
 };
 
