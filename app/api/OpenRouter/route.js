@@ -17,29 +17,15 @@ export async function POST(req) {
       }),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      return new Response(JSON.stringify({ reply: "API error", error }), {
-        status: response.status,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
     const stream = new ReadableStream({
       async start(controller) {
-        try {
-          for await (const chunk of response.body) {
-            const text = decoder.decode(chunk);
-            controller.enqueue(encoder.encode(text));
-          }
-        } catch (err) {
-          controller.error(err);
-        } finally {
-          controller.close();
+        for await (const chunk of response.body) {
+          controller.enqueue(encoder.encode(decoder.decode(chunk)));
         }
+        controller.close();
       }
     });
 
@@ -52,12 +38,10 @@ export async function POST(req) {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({
-      reply: "Server error",
-      error: err.message
-    }), {
+    return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { "Content-Type": "application/json" }
     });
   }
 }
+
