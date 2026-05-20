@@ -48,8 +48,10 @@ export default function Home() {
     );
   };
 
+  // ⭐ FIXED VERSION — New Chat button now works perfectly
   const startNewChat = () => {
     const id = crypto.randomUUID();
+
     const newChat = {
       id,
       messages: [
@@ -60,8 +62,16 @@ export default function Home() {
       ],
     };
 
-    setChatSessions((prev) => [...prev, newChat]);
+    // Update chatSessions AND localStorage immediately
+    setChatSessions((prev) => {
+      const updated = [...prev, newChat];
+      localStorage.setItem("chatSessions", JSON.stringify(updated));
+      return updated;
+    });
+
+    // Set active chat immediately
     setActiveChatId(id);
+    localStorage.setItem("activeChatId", id);
   };
 
   const sendMessage = async () => {
@@ -206,3 +216,4 @@ export default function Home() {
     </main>
   );
 }
+
