@@ -172,8 +172,12 @@ export default function Home() {
         setExpand={setExpand}
         chatSessions={chatSessions}
         activeChatId={activeChatId}
-        setActiveChatId={setActiveChatId}
-        startNewChat={startNewChat}
+        onSelectChat={setActiveChatId}
+        onNewChat={startNewChat}
+        onDeleteChat={(id) => {
+          setChatSessions((prev) => prev.filter((c) => c.id !== id));
+          if (activeChatId === id) setActiveChatId(null);
+        }}
       />
 
       <section className="flex-1 flex flex-col overflow-hidden">
@@ -245,3 +249,4 @@ export default function Home() {
     </main>
   );
 }
+
