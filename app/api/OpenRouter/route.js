@@ -22,16 +22,43 @@ export async function POST(req) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        for await (const chunk of response.body) {
-          controller.enqueue(encoder.encode(decoder.decode(chunk)));
+        const reader = response.body.getReader();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+
+          // Split SSE lines
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+
+            const json = line.replace("data:", "").trim();
+            if (json === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(json);
+              const token = parsed?.choices?.[0]?.delta?.content;
+
+              if (token) {
+                controller.enqueue(encoder.encode(token));
+              }
+            } catch (err) {
+              // ignore malformed chunks
+            }
+          }
         }
+
         controller.close();
       }
     });
 
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/event-stream",
+        "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive"
       }
@@ -44,4 +71,5 @@ export async function POST(req) {
     });
   }
 }
+
 
