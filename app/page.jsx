@@ -1,7 +1,6 @@
-'use client';
+"use client";
 
 import Sidebar from "./components/Sidebar";
-import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 
 export default function Home() {
@@ -10,13 +9,10 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [text, setText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-
   const messagesEndRef = useRef(null);
 
-  // Load from localStorage (client-safe)
+  // Load saved chats
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
     const saved = localStorage.getItem("chatSessions");
     const savedActive = localStorage.getItem("activeChatId");
 
@@ -24,7 +20,7 @@ export default function Home() {
     if (savedActive) setActiveChatId(savedActive);
   }, []);
 
-  // Save sessions
+  // Save chats
   useEffect(() => {
     localStorage.setItem("chatSessions", JSON.stringify(chatSessions));
   }, [chatSessions]);
@@ -36,198 +32,177 @@ export default function Home() {
     }
   }, [activeChatId]);
 
-  const activeChat = chatSessions.find(c => c.id === activeChatId);
-
   // Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatSessions, isTyping]);
 
-  const createNewChat = () => {
-    const id = crypto.randomUUID();
+  const getActiveChat = () =>
+    chatSessions.find((c) => c.id === activeChatId) || null;
 
+  const updateActiveChat = (messages) => {
+    setChatSessions((prev) =>
+      prev.map((c) =>
+        c.id === activeChatId ? { ...c, messages } : c
+      )
+    );
+  };
+
+  const startNewChat = () => {
+    const id = crypto.randomUUID();
     const newChat = {
       id,
-      title: "New Chat",
-      messages: []
+      messages: [
+        {
+          role: "assistant",
+          content: "Hi, I'm Gemma‑2‑9B. How can I help you today?",
+        },
+      ],
     };
 
-    setChatSessions(prev => [newChat, ...prev]);
+    setChatSessions((prev) => [...prev, newChat]);
     setActiveChatId(id);
-    setIsTyping(false);
   };
 
-  const updateChatMessages = (id, message) => {
-    setChatSessions(prev =>
-      prev.map(chat =>
-        chat.id === id
-          ? { ...chat, messages: [...chat.messages, message] }
-          : chat
-      )
-    );
-  };
-
-  const updateChatTitle = (id, title) => {
-    setChatSessions(prev =>
-      prev.map(chat =>
-        chat.id === id ? { ...chat, title } : chat
-      )
-    );
-  };
-
-  // ⭐ FIXED SEND FUNCTION
-  const handleSend = async () => {
+  const sendMessage = async () => {
     if (!text.trim() || !activeChatId) return;
 
-    const userMessage = {
-      role: "user",
-      text,
-      time: new Date()
-    };
+    const userMsg = { role: "user", content: text.trim() };
+    const chat = getActiveChat();
+    const updatedMessages = [...chat.messages, userMsg];
 
-    const chat = chatSessions.find(c => c.id === activeChatId);
-    const previousMessages = chat?.messages || [];
-
-    // Build updated message list immediately (FIX)
-    const updatedMessages = [...previousMessages, userMessage];
-
-    updateChatMessages(activeChatId, userMessage);
-
-    if (previousMessages.length === 0) {
-      updateChatTitle(activeChatId, text.slice(0, 30));
-    }
-
+    updateActiveChat(updatedMessages);
     setText("");
     setIsTyping(true);
 
     try {
-      const ormMessages = updatedMessages.map(m => ({
-        role: m.role === "ai" ? "assistant" : m.role,
-        content: m.text
-      }));
-
       const res = await fetch("/api/OpenRouter", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: ormMessages })
+        body: JSON.stringify({ messages: updatedMessages }),
       });
 
-      const data = await res.json();
+      if (!res.body) {
+        updateActiveChat([
+          ...updatedMessages,
+          { role: "assistant", content: "No response stream." },
+        ]);
+        setIsTyping(false);
+        return;
+      }
 
-      const aiMessage = {
-        role: "ai",
-        text: data.reply || "⚠️ No response from AI",
-        time: new Date()
-      };
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let aiMessage = "";
 
-      updateChatMessages(activeChatId, aiMessage);
+      updateActiveChat([
+        ...updatedMessages,
+        { role: "assistant", content: "" },
+      ]);
 
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        aiMessage += chunk;
+
+        updateActiveChat((prev => {
+          const chat = getActiveChat();
+          const msgs = [...chat.messages];
+          msgs[msgs.length - 1].content = aiMessage;
+          return msgs;
+        })(chatSessions));
+      }
     } catch (err) {
-      updateChatMessages(activeChatId, {
-        role: "ai",
-        text: "Error: Could not reach OpenRouter API.",
-        time: new Date()
-      });
+      updateActiveChat([
+        ...updatedMessages,
+        { role: "assistant", content: "Error talking to the model." },
+      ]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const deleteChat = (id) => {
-    setChatSessions(prev => {
-      const updated = prev.filter(chat => chat.id !== id);
-
-      if (id === activeChatId) {
-        setActiveChatId(updated.length ? updated[0].id : null);
-      }
-
-      return updated;
-    });
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
-  return (
-    <div className="flex h-screen">
+  const chat = getActiveChat();
 
+  return (
+    <main className="flex h-screen bg-black text-white">
       <Sidebar
         expand={expand}
         setExpand={setExpand}
-        onNewChat={createNewChat}
         chatSessions={chatSessions}
         activeChatId={activeChatId}
-        onSelectChat={setActiveChatId}
-        onDeleteChat={deleteChat}
+        setActiveChatId={setActiveChatId}
+        startNewChat={startNewChat}
       />
 
-      {/* CHAT AREA */}
-      <div className="flex-1 flex flex-col px-4 py-8 bg-[#292a2d] text-white relative">
+      <section className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="px-4 py-3 border-b border-neutral-800 bg-black/40 backdrop-blur-md flex justify-between items-center">
+          <h1 className="text-lg font-semibold">DeepSeek Clone</h1>
+          <div className="flex items-center gap-3">
+            <select className="bg-neutral-900 px-3 py-1 rounded-md border border-neutral-700">
+              <option>Gemma‑2‑9B</option>
+              <option>DeepSeek‑R1</option>
+              <option>Qwen‑2.5</option>
+            </select>
+          </div>
+        </header>
 
-        {/* MESSAGES */}
-        <div className="flex-1 overflow-y-auto w-full max-w-3xl mx-auto mt-10 space-y-4 pb-20">
-
-          {!activeChat || activeChat.messages.length === 0 ? (
-            <div className="text-center mt-20">
-              <div className="flex items-center gap-3 justify-center">
-                <Image src="/assets/logo_icon.svg" alt="" width={64} height={64} />
-                <p className="text-2xl font-medium">Hi, I'm Gemma-2-9B.</p>
-              </div>
-              <p className="text-sm mt-2">How can I help you today?</p>
-            </div>
-          ) : (
-            activeChat.messages.map((msg, i) => (
+        {/* Chat */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {chat?.messages?.map((m, i) => (
+            <div
+              key={i}
+              className={`max-w-2xl ${
+                m.role === "user" ? "ml-auto text-right" : "mr-auto text-left"
+              }`}
+            >
               <div
-                key={i}
-                className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`inline-block px-3 py-2 rounded-2xl text-sm ${
+                  m.role === "user"
+                    ? "bg-blue-600"
+                    : "bg-neutral-800"
+                }`}
               >
-                {msg.role === "ai" && (
-                  <Image src="/assets/logo_icon.svg" width={32} height={32} alt="ai" />
-                )}
-
-                <div className={`p-3 rounded-xl max-w-xl ${
-                  msg.role === "user" ? "bg-blue-600" : "bg-[#3a3b3d]"
-                }`}>
-                  {msg.text}
-                </div>
+                {m.content}
               </div>
-            ))
-          )}
+            </div>
+          ))}
 
           {isTyping && (
-            <div className="flex gap-3 items-center">
-              <Image src="/assets/logo_icon.svg" width={32} height={32} alt="ai" />
-              <div className="bg-[#3a3b3d] p-3 rounded-xl flex gap-1">
-                <span className="animate-pulse">●</span>
-                <span className="animate-pulse delay-150">●</span>
-                <span className="animate-pulse delay-300">●</span>
-              </div>
-            </div>
+            <div className="text-xs text-neutral-400">Gemma is thinking…</div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* INPUT */}
-        <div className="w-full max-w-3xl mx-auto absolute bottom-6 left-1/2 -translate-x-1/2">
-          <div className="flex items-center gap-3 bg-[#1f1f21] p-3 rounded-xl">
-
-            <input
+        {/* Input */}
+        <div className="border-t border-neutral-800 p-3">
+          <div className="max-w-2xl mx-auto flex gap-2">
+            <textarea
+              className="flex-1 bg-neutral-900 text-sm rounded-lg px-3 py-2 h-12 resize-none border border-neutral-700 focus:border-blue-500 outline-none"
+              placeholder="Ask anything..."
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Ask anything..."
-              className="flex-1 bg-transparent outline-none text-white"
+              onKeyDown={handleKey}
             />
-
             <button
-              onClick={handleSend}
-              className="bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700"
+              onClick={sendMessage}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
             >
               Send
             </button>
-
           </div>
         </div>
-
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
