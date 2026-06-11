@@ -5,10 +5,10 @@ import MessageBubble from "./components/MessageBubble";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const MODELS = {
-  "llama-3-8b":  "Llama 3 8B",
-  "gemma-2-9b":  "Gemma 2 9B",
-  "deepseek":    "DeepSeek Chat",
-  "qwen-2.5-7b": "Qwen 2.5 7B",
+  "deepseek-v3.2": "DeepSeek V3.2",
+  "gemma-4-31b":   "Gemma 4 31B",
+  "llama-3.3-70b": "Llama 3.3 70B",
+  "ministral-8b":  "Ministral 8B",
 };
 
 const SUGGESTIONS = [
@@ -24,7 +24,7 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [text, setText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [model, setModel] = useState("llama-3-8b");
+  const [model, setModel] = useState("deepseek-v3.2");
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);

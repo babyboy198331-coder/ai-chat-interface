@@ -1,12 +1,12 @@
 // Allowlist of models the client may request — never trust raw client input
 const MODELS = {
-  "llama-3-8b":   "meta-llama/llama-3-8b-instruct",
-  "gemma-2-9b":   "google/gemma-2-9b-it",
-  "deepseek":     "deepseek/deepseek-chat",
-  "qwen-2.5-7b":  "qwen/qwen-2.5-7b-instruct",
+  "deepseek-v3.2": "deepseek/deepseek-v3.2",
+  "gemma-4-31b":   "google/gemma-4-31b-it:free",
+  "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct",
+  "ministral-8b":  "mistralai/ministral-8b-2512",
 };
 
-const DEFAULT_MODEL = "llama-3-8b";
+const DEFAULT_MODEL = "deepseek-v3.2";
 
 export async function POST(req) {
   try {
