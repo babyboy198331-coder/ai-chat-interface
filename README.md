@@ -1,38 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-## Live Demo
-https://deep-seek-clone-wine.vercel.app
+# Nimbus — AI Chat Interface
+
+A multi-model AI chat application with live token streaming, built with Next.js (App Router) and the OpenRouter API.
+
+**Live demo:** https://deep-seek-clone-wine.vercel.app
+
+## Features
+
+- **Live token streaming** — responses render word-by-word via a server-side streaming proxy (Edge-style `ReadableStream` over SSE)
+- **Multi-model switching** — swap between Llama 3, Gemma 2, DeepSeek, and Qwen mid-conversation; the model allowlist is validated server-side
+- **Stop & regenerate** — cancel a response mid-stream (`AbortController` wired through to the upstream request) or regenerate the last reply
+- **Markdown rendering** — custom zero-dependency renderer with fenced code blocks, copy-to-clipboard, inline code, lists, headings, and links
+- **Persistent conversations** — chats are auto-titled from your first message and stored locally; search and manage them from the sidebar
+- **Responsive** — collapsible sidebar on desktop, off-canvas drawer with backdrop on mobile
+
+## Tech Stack
+
+Next.js · React · Tailwind CSS · OpenRouter API (streaming)
 
 ## Getting Started
 
-First, run the development server:
+1. Clone the repo and install dependencies:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+   ```bash
+   npm install
+   ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Create a `.env.local` with your OpenRouter key:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+   ```bash
+   OPENROUTER_KEY=sk-or-...
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Run the dev server:
 
-## Learn More
+   ```bash
+   npm run dev
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+Open [http://localhost:3000](http://localhost:3000).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The browser never sees the API key — all model calls go through `app/api/OpenRouter/route.js`, which validates the requested model against an allowlist, forwards the conversation upstream, and re-streams tokens back to the client as plain text. The client reads the stream with `response.body.getReader()` and updates React state per chunk, using functional state updaters to avoid stale-closure bugs during rapid streaming updates.

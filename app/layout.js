@@ -6,16 +6,16 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-
 export const metadata = {
-  title: "Gemma- GreatStack",
-  description: "Full Stack Project",
+  title: "Nimbus — AI Chat",
+  description:
+    "A multi-model AI chat interface with live token streaming, markdown rendering, and persistent conversations. Built with Next.js and the OpenRouter API.",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={inter.variable}>{children}</body>
     </html>
   );
 }

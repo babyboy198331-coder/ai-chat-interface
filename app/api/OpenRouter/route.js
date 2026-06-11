@@ -1,6 +1,25 @@
+// Allowlist of models the client may request — never trust raw client input
+const MODELS = {
+  "llama-3-8b":   "meta-llama/llama-3-8b-instruct",
+  "gemma-2-9b":   "google/gemma-2-9b-it",
+  "deepseek":     "deepseek/deepseek-chat",
+  "qwen-2.5-7b":  "qwen/qwen-2.5-7b-instruct",
+};
+
+const DEFAULT_MODEL = "llama-3-8b";
+
 export async function POST(req) {
   try {
-    const { messages } = await req.json();
+    const { messages, model } = await req.json();
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return new Response(JSON.stringify({ error: "No messages provided." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const modelSlug = MODELS[model] ?? MODELS[DEFAULT_MODEL];
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -8,14 +27,24 @@ export async function POST(req) {
         "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://deep-seek-clone-wine.vercel.app",
-        "X-Title": "My Chat App",
+        "X-Title": "Nimbus AI",
       },
       body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct",
+        model: modelSlug,
         messages,
-        stream: true
+        stream: true,
       }),
+      signal: req.signal, // propagate client aborts upstream
     });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error("OpenRouter error:", response.status, errBody);
+      return new Response(
+        JSON.stringify({ error: `Upstream error (${response.status}).` }),
+        { status: 502, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
@@ -23,53 +52,60 @@ export async function POST(req) {
     const stream = new ReadableStream({
       async start(controller) {
         const reader = response.body.getReader();
+        let buffer = "";
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-          const chunk = decoder.decode(value);
+            buffer += decoder.decode(value, { stream: true });
 
-          // Split SSE lines
-          const lines = chunk.split("\n");
+            // SSE events are newline-delimited; keep incomplete tail in buffer
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
 
-          for (const line of lines) {
-            if (!line.startsWith("data:")) continue;
+            for (const line of lines) {
+              if (!line.startsWith("data:")) continue;
 
-            const json = line.replace("data:", "").trim();
-            if (json === "[DONE]") continue;
+              const json = line.replace("data:", "").trim();
+              if (json === "[DONE]") continue;
 
-            try {
-              const parsed = JSON.parse(json);
-              const token = parsed?.choices?.[0]?.delta?.content;
-
-              if (token) {
-                controller.enqueue(encoder.encode(token));
+              try {
+                const parsed = JSON.parse(json);
+                const token = parsed?.choices?.[0]?.delta?.content;
+                if (token) controller.enqueue(encoder.encode(token));
+              } catch {
+                // ignore malformed chunks
               }
-            } catch (err) {
-              // ignore malformed chunks
             }
           }
+        } catch {
+          // client aborted — nothing to do
+        } finally {
+          controller.close();
         }
-
-        controller.close();
-      }
+      },
+      cancel() {
+        // downstream consumer cancelled — release upstream connection
+        response.body?.cancel?.();
+      },
     });
 
     return new Response(stream, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive"
-      }
+        "Connection": "keep-alive",
+      },
     });
-
   } catch (err) {
+    if (err?.name === "AbortError") {
+      return new Response(null, { status: 499 });
+    }
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     });
   }
 }
-
-
