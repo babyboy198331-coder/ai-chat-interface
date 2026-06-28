@@ -1,25 +1,105 @@
-// Allowlist of models the client may request — never trust raw client input
-const MODELS = {
-  "deepseek-v3.2": "deepseek/deepseek-v3.2",
-  "gemma-4-31b":   "google/gemma-4-31b-it:free",
-  "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct",
-  "ministral-8b":  "mistralai/ministral-8b-2512",
-};
+import { MODELS, resolveUpstreamModel } from "../../config/models";
 
-const DEFAULT_MODEL = "deepseek-v3.2";
+// --- Request limits -------------------------------------------------------
+const MAX_MESSAGES = 60; // caps how much history gets forwarded upstream
+const MAX_MESSAGE_LENGTH = 8000; // chars, per message
+const MAX_TOTAL_LENGTH = 60000; // chars, across the whole conversation
+
+// --- Rate limiting ---------------------------------------------------------
+// Simple in-memory sliding-window limiter, keyed by client IP. This is
+// process-local: fine for a single server/instance (e.g. one Vercel
+// function instance, or a self-hosted box) but won't share state across
+// multiple instances. Good enough to stop casual abuse of a public demo;
+// swap for Redis/Upstash if you need it to hold across a fleet.
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const rateLimitHits = new Map(); // ip -> array of request timestamps
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const hits = (rateLimitHits.get(ip) ?? []).filter(
+    (t) => now - t < RATE_LIMIT_WINDOW_MS
+  );
+  hits.push(now);
+  rateLimitHits.set(ip, hits);
+
+  // Opportunistic cleanup so the map doesn't grow unbounded.
+  if (rateLimitHits.size > 5000) {
+    for (const [key, timestamps] of rateLimitHits) {
+      if (timestamps.every((t) => now - t >= RATE_LIMIT_WINDOW_MS)) {
+        rateLimitHits.delete(key);
+      }
+    }
+  }
+
+  return hits.length > RATE_LIMIT_MAX_REQUESTS;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("x-real-ip") ?? "unknown";
+}
+
+function jsonError(message, status) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function validateMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return "No messages provided.";
+  }
+  if (messages.length > MAX_MESSAGES) {
+    return `Too many messages (max ${MAX_MESSAGES}). Start a new chat.`;
+  }
+
+  let totalLength = 0;
+  for (const m of messages) {
+    if (!m || typeof m.content !== "string" || typeof m.role !== "string") {
+      return "Malformed message in conversation.";
+    }
+    if (m.content.length > MAX_MESSAGE_LENGTH) {
+      return `A message exceeds the ${MAX_MESSAGE_LENGTH}-character limit.`;
+    }
+    totalLength += m.content.length;
+  }
+  if (totalLength > MAX_TOTAL_LENGTH) {
+    return "Conversation is too long for this request. Start a new chat.";
+  }
+
+  return null;
+}
 
 export async function POST(req) {
   try {
-    const { messages, model } = await req.json();
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return new Response(JSON.stringify({ error: "No messages provided." }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!process.env.OPENROUTER_KEY) {
+      console.error("OPENROUTER_KEY is not set.");
+      return jsonError(
+        "Server is missing its OpenRouter API key. Set OPENROUTER_KEY and restart.",
+        500
+      );
     }
 
-    const modelSlug = MODELS[model] ?? MODELS[DEFAULT_MODEL];
+    const ip = getClientIp(req);
+    if (isRateLimited(ip)) {
+      return jsonError(
+        "Too many requests. Please wait a moment and try again.",
+        429
+      );
+    }
+
+    const { messages, model } = await req.json();
+
+    const validationError = validateMessages(messages);
+    if (validationError) {
+      return jsonError(validationError, 400);
+    }
+
+    const modelSlug = MODELS[model] ? model : undefined;
+    const upstreamModel = resolveUpstreamModel(modelSlug);
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -30,7 +110,7 @@ export async function POST(req) {
         "X-Title": "Nimbus AI",
       },
       body: JSON.stringify({
-        model: modelSlug,
+        model: upstreamModel,
         messages,
         stream: true,
       }),
@@ -40,10 +120,7 @@ export async function POST(req) {
     if (!response.ok) {
       const errBody = await response.text();
       console.error("OpenRouter error:", response.status, errBody);
-      return new Response(
-        JSON.stringify({ error: `Upstream error (${response.status}).` }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
+      return jsonError(`Upstream error (${response.status}).`, 502);
     }
 
     const encoder = new TextEncoder();
@@ -103,9 +180,6 @@ export async function POST(req) {
     if (err?.name === "AbortError") {
       return new Response(null, { status: 499 });
     }
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError(err.message, 500);
   }
 }

@@ -3,13 +3,9 @@
 import Sidebar from "./components/Sidebar";
 import MessageBubble from "./components/MessageBubble";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { MODELS, DEFAULT_MODEL } from "./config/models";
 
-const MODELS = {
-  "deepseek-v3.2": "DeepSeek V3.2",
-  "gemma-4-31b":   "Gemma 4 31B",
-  "llama-3.3-70b": "Llama 3.3 70B",
-  "ministral-8b":  "Ministral 8B",
-};
+const MAX_INPUT_LENGTH = 8000; // mirrors MAX_MESSAGE_LENGTH in app/api/OpenRouter/route.js
 
 const SUGGESTIONS = [
   { icon: "💡", text: "Explain JavaScript closures with an example" },
@@ -24,7 +20,7 @@ export default function Home() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [text, setText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [model, setModel] = useState("deepseek-v3.2");
+  const [model, setModel] = useState(DEFAULT_MODEL);
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -114,7 +110,16 @@ export default function Home() {
           signal: controller.signal,
         });
 
-        if (!res.ok || !res.body) throw new Error(`HTTP error: ${res.status}`);
+        if (!res.ok || !res.body) {
+          let serverMessage = null;
+          try {
+            const body = await res.json();
+            serverMessage = body?.error;
+          } catch {
+            /* body wasn't JSON (e.g. empty) — fall back to status */
+          }
+          throw new Error(serverMessage || `HTTP error: ${res.status}`);
+        }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -162,7 +167,9 @@ export default function Home() {
             const updated = [...msgs];
             updated[updated.length - 1] = {
               role: "assistant",
-              content: "Something went wrong. Please try again.",
+              content: err.message?.startsWith("HTTP error")
+                ? "Something went wrong. Please try again."
+                : err.message,
             };
             return updated;
           });
@@ -180,6 +187,10 @@ export default function Home() {
     async (overrideText) => {
       const trimmed = (overrideText ?? text).trim();
       if (!trimmed || isStreaming) return;
+      if (trimmed.length > MAX_INPUT_LENGTH) {
+        alert(`Message is too long (max ${MAX_INPUT_LENGTH} characters).`);
+        return;
+      }
 
       let chatId = activeChatIdRef.current;
       let history;
@@ -272,7 +283,7 @@ export default function Home() {
             {/* Mobile menu */}
             <button
               onClick={() => setExpand(true)}
-              className="md:hidden h-9 w-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
+              className="md:hidden h-9 w-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               aria-label="Open menu"
             >
               <span className="text-lg">☰</span>
@@ -290,7 +301,7 @@ export default function Home() {
             onChange={(e) => setModel(e.target.value)}
             className="bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-700 text-sm outline-none focus:border-indigo-500 transition-colors cursor-pointer"
           >
-            {Object.entries(MODELS).map(([key, label]) => (
+            {Object.entries(MODELS).map(([key, { label }]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -299,7 +310,7 @@ export default function Home() {
         </header>
 
         {/* Messages / Welcome */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="flex-1 overflow-y-auto px-4 py-6 scrollbar-thin">
           {showWelcome ? (
             <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center">
               <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-2xl mb-5">
@@ -309,7 +320,7 @@ export default function Home() {
                 How can I help you today?
               </h2>
               <p className="text-sm text-neutral-400 mb-8">
-                Chatting with <span className="text-neutral-200">{MODELS[model]}</span> — switch models any time, mid-conversation.
+                Chatting with <span className="text-neutral-200">{MODELS[model]?.label}</span> — switch models any time, mid-conversation.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
@@ -350,6 +361,7 @@ export default function Home() {
                 rows={1}
                 className="flex-1 bg-transparent text-sm px-2 py-2 resize-none outline-none max-h-40 placeholder:text-neutral-500"
                 placeholder="Ask anything…"
+                maxLength={MAX_INPUT_LENGTH}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onInput={autoGrow}

@@ -41,4 +41,19 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Architecture Notes
 
-The browser never sees the API key — all model calls go through `app/api/OpenRouter/route.js`, which validates the requested model against an allowlist, forwards the conversation upstream, and re-streams tokens back to the client as plain text. The client reads the stream with `response.body.getReader()` and updates React state per chunk, using functional state updaters to avoid stale-closure bugs during rapid streaming updates.
+The browser never sees the API key — all model calls go through `app/api/OpenRouter/route.js`, which validates the requested model against an allowlist (shared with the client via `app/config/models.js`, so the two never drift apart), forwards the conversation upstream, and re-streams tokens back to the client as plain text. The client reads the stream with `response.body.getReader()` and updates React state per chunk, using functional state updaters to avoid stale-closure bugs during rapid streaming updates.
+
+The API route also guards against abuse and misconfiguration:
+
+- Fails fast with a clear error if `OPENROUTER_KEY` is missing, instead of an opaque upstream 502.
+- Caps conversation size (60 messages / 8,000 chars per message / 60,000 chars total) before forwarding upstream.
+- Applies a per-IP sliding-window rate limit (20 requests/minute) to protect against credit-burning abuse on a public deployment. It's in-memory and process-local — fine for a single instance, swap in Redis/Upstash if you scale horizontally.
+
+## Desktop App (Electron)
+
+`electron.js` wraps the app in a desktop shell. Because the app relies on server-side API routes (not just static pages), it can't use a static export — instead, production builds bundle a self-contained Next.js server (`output: "standalone"` in `next.config.ts`) that Electron spawns locally and points the window at.
+
+```bash
+npm run electron        # dev: launches Electron against `next dev`
+npm run electron:dist    # prod: builds Next.js + packages with electron-builder
+```

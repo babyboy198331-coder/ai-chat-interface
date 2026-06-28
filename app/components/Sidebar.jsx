@@ -46,7 +46,7 @@ const Sidebar = ({
           {/* Collapse / expand toggle */}
           <button
             onClick={() => setExpand(!expand)}
-            className="flex items-center justify-center h-8 w-8 rounded-lg cursor-pointer text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="flex items-center justify-center h-8 w-8 rounded-lg cursor-pointer text-neutral-400 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             aria-label="Toggle sidebar"
           >
             {expand ? "«" : "»"}
@@ -82,7 +82,7 @@ const Sidebar = ({
           <div className="mt-5 text-neutral-500 text-xs flex flex-col min-h-0">
             <p className="uppercase tracking-wider px-1">Chats</p>
 
-            <div className="mt-2 overflow-y-auto pr-1 space-y-1">
+            <div className="mt-2 overflow-y-auto pr-1 space-y-1 scrollbar-thin">
               {filteredChats.length === 0 && (
                 <p className="px-1 py-2 text-neutral-600">No chats yet.</p>
               )}
@@ -102,7 +102,7 @@ const Sidebar = ({
                       e.stopPropagation();
                       onDeleteChat(chat.id);
                     }}
-                    className="ml-2 text-neutral-600 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                    className="ml-2 text-neutral-600 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-400 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
                     aria-label="Delete chat"
                   >
                     ✕
